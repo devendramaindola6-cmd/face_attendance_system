@@ -62,6 +62,33 @@ def show_attendance_table() -> None:
     )
 
 
+def enrolled_people() -> pd.DataFrame:
+    ensure_directories()
+    rows = []
+    for person_dir in sorted(FACES_DIR.iterdir()):
+        if not person_dir.is_dir():
+            continue
+
+        prefix, _, raw_name = person_dir.name.partition("_")
+        if not prefix.isdigit() or not raw_name:
+            continue
+
+        sample_count = len(list(person_dir.glob("*.png")))
+        if sample_count == 0:
+            continue
+
+        rows.append(
+            {
+                "person_id": int(prefix),
+                "name": raw_name.replace("_", " "),
+                "samples": sample_count,
+                "status": "Ready for training",
+            }
+        )
+
+    return pd.DataFrame(rows)
+
+
 def decode_image(image_bytes: bytes) -> np.ndarray:
     image_array = np.frombuffer(image_bytes, dtype=np.uint8)
     frame = cv2.imdecode(image_array, cv2.IMREAD_COLOR)
@@ -234,6 +261,7 @@ def main() -> None:
 
                     if saved:
                         st.success(f"Saved {saved} new sample(s).")
+                        st.info("This enrollment is now available in the Train tab.")
                     else:
                         st.warning("No new samples were saved.")
                     for message in messages:
@@ -241,7 +269,12 @@ def main() -> None:
 
     with train_tab:
         st.subheader("Train Model")
-        st.write("Train after enrolling one or more people.")
+        training_people = enrolled_people()
+        if training_people.empty:
+            st.info("No enrolled people are available for training yet.")
+        else:
+            st.dataframe(training_people, use_container_width=True, hide_index=True)
+
         if st.button("Train Face Model", type="primary"):
             try:
                 train()
