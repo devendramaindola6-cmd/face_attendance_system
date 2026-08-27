@@ -1,6 +1,6 @@
 # Face Detection Attendance System
 
-This project enrolls faces, trains a face recognizer, and marks attendance from webcam snapshots or uploaded images.
+This project enrolls faces, trains a face recognizer, and marks attendance from webcam snapshots or uploaded images. Attendance dates and times are saved in Indian Standard Time (IST).
 
 ## Setup
 
@@ -83,6 +83,8 @@ attendance/attendance.csv
 ```
 
 Each person is marked only once per day.
+
+Attendance timestamps use Indian Standard Time (IST), even when the app runs on Streamlit Community Cloud.
 
 ## 4. View recent attendance
 

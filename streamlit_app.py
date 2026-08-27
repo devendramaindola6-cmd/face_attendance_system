@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import hashlib
-from datetime import datetime
+import shutil
 from pathlib import Path
 
 import cv2
@@ -12,9 +12,10 @@ import streamlit as st
 from attendance_system import (
     ATTENDANCE_PATH,
     DEFAULT_CONFIDENCE_LIMIT,
-    DEFAULT_SAMPLE_COUNT,
     FACES_DIR,
+    LABELS_PATH,
     crop_face,
+    current_time_ist,
     detect_largest_face,
     draw_box,
     ensure_attendance_file,
@@ -22,10 +23,14 @@ from attendance_system import (
     load_face_detector,
     load_model,
     mark_attendance,
+    MODEL_PATH,
     next_person_id,
     normalize_name,
     train,
 )
+
+ASSETS_DIR = Path(__file__).resolve().parent / "assets"
+HERO_IMAGE_PATH = ASSETS_DIR / "aisha-scanner-facerec.png"
 
 
 st.set_page_config(
@@ -33,6 +38,148 @@ st.set_page_config(
     page_icon=":camera:",
     layout="wide",
 )
+
+
+def apply_theme() -> None:
+    st.markdown(
+        """
+        <style>
+            [data-testid="stAppViewContainer"] {
+                background:
+                    radial-gradient(circle at top left, rgba(18, 184, 134, 0.14), transparent 32rem),
+                    radial-gradient(circle at top right, rgba(245, 158, 11, 0.14), transparent 30rem),
+                    linear-gradient(135deg, #f8fbfb 0%, #eef8f4 46%, #fff8ed 100%);
+                color: #102027;
+            }
+
+            [data-testid="stHeader"] {
+                background: transparent;
+            }
+
+            .block-container {
+                max-width: 1180px;
+                padding-top: 2rem;
+                padding-bottom: 3rem;
+            }
+
+            .hero-eyebrow {
+                color: #0f766e;
+                font-size: 0.78rem;
+                font-weight: 800;
+                letter-spacing: 0;
+                margin-bottom: 0.45rem;
+                text-transform: uppercase;
+            }
+
+            .hero-title {
+                color: #102027;
+                font-size: 3rem;
+                font-weight: 900;
+                line-height: 1.02;
+                margin: 0;
+            }
+
+            .hero-copy {
+                color: #52646c;
+                font-size: 1.08rem;
+                line-height: 1.65;
+                margin-top: 1rem;
+                max-width: 38rem;
+            }
+
+            .hero-pill-row {
+                display: flex;
+                flex-wrap: wrap;
+                gap: 0.65rem;
+                margin-top: 1.3rem;
+            }
+
+            .hero-pill {
+                background: rgba(255, 255, 255, 0.78);
+                border: 1px solid rgba(15, 118, 110, 0.18);
+                border-radius: 999px;
+                color: #17464a;
+                font-size: 0.86rem;
+                font-weight: 700;
+                padding: 0.5rem 0.8rem;
+            }
+
+            [data-testid="stMetric"] {
+                background: rgba(255, 255, 255, 0.82);
+                border: 1px solid rgba(16, 32, 39, 0.08);
+                border-radius: 8px;
+                box-shadow: 0 14px 35px rgba(16, 32, 39, 0.08);
+                padding: 1rem;
+            }
+
+            [data-testid="stMetricLabel"] {
+                color: #52646c;
+                font-weight: 700;
+            }
+
+            [data-testid="stMetricValue"] {
+                color: #102027;
+                font-weight: 900;
+            }
+
+            .stTabs [data-baseweb="tab-list"] {
+                background: rgba(255, 255, 255, 0.74);
+                border: 1px solid rgba(16, 32, 39, 0.08);
+                border-radius: 8px;
+                gap: 0.25rem;
+                padding: 0.35rem;
+            }
+
+            .stTabs [data-baseweb="tab"] {
+                border-radius: 7px;
+                color: #52646c;
+                font-weight: 800;
+                padding-left: 1rem;
+                padding-right: 1rem;
+            }
+
+            .stTabs [aria-selected="true"] {
+                background: #0f766e;
+                color: #ffffff;
+            }
+
+            .stButton > button {
+                border-radius: 8px;
+                border: 1px solid rgba(15, 118, 110, 0.28);
+                font-weight: 800;
+                min-height: 2.8rem;
+            }
+
+            .stButton > button[kind="primary"] {
+                background: linear-gradient(135deg, #0f766e, #16a34a);
+                border: 0;
+                color: #ffffff;
+                box-shadow: 0 12px 26px rgba(15, 118, 110, 0.24);
+            }
+
+            [data-testid="stSidebar"] {
+                background: #ffffff;
+                border-right: 1px solid rgba(16, 32, 39, 0.08);
+            }
+
+            h2, h3 {
+                color: #102027;
+                font-weight: 900;
+            }
+
+            div[data-testid="stDataFrame"] {
+                border: 1px solid rgba(16, 32, 39, 0.08);
+                border-radius: 8px;
+                overflow: hidden;
+            }
+
+            img {
+                border-radius: 8px;
+            }
+        </style>
+        """,
+        unsafe_allow_html=True,
+    )
 
 
 def read_attendance() -> pd.DataFrame:
@@ -87,6 +234,61 @@ def enrolled_people() -> pd.DataFrame:
         )
 
     return pd.DataFrame(rows)
+
+
+def delete_trained_model() -> None:
+    for path in (MODEL_PATH, LABELS_PATH):
+        if path.exists():
+            path.unlink()
+
+
+def delete_training_samples() -> None:
+    if FACES_DIR.exists():
+        shutil.rmtree(FACES_DIR)
+    FACES_DIR.mkdir(parents=True, exist_ok=True)
+    st.session_state.pop("enrollment_name", None)
+    st.session_state.pop("enrollment_dir", None)
+    st.session_state.pop("saved_sample_hashes", None)
+
+
+def model_status() -> str:
+    return "Ready" if MODEL_PATH.exists() and LABELS_PATH.exists() else "Not trained"
+
+
+def show_hero() -> None:
+    people = enrolled_people()
+    attendance = read_attendance()
+    sample_total = int(people["samples"].sum()) if not people.empty else 0
+
+    left, right = st.columns([1.04, 0.96], vertical_alignment="center")
+    with left:
+        st.markdown(
+            """
+            <div class="hero-eyebrow">Smart Classroom Attendance</div>
+            <h1 class="hero-title">Face Attendance System</h1>
+            <p class="hero-copy">
+                Enroll students, train the recognizer, and mark attendance from secure
+                browser camera snapshots. Built for Streamlit Cloud with IST timestamps.
+            </p>
+            <div class="hero-pill-row">
+                <span class="hero-pill">Cloud ready</span>
+                <span class="hero-pill">Browser camera</span>
+                <span class="hero-pill">IST records</span>
+                <span class="hero-pill">CSV export</span>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
+
+    with right:
+        if HERO_IMAGE_PATH.exists():
+            st.image(HERO_IMAGE_PATH, use_container_width=True)
+
+    metric_1, metric_2, metric_3, metric_4 = st.columns(4)
+    metric_1.metric("Enrolled People", len(people))
+    metric_2.metric("Face Samples", sample_total)
+    metric_3.metric("Attendance Rows", len(attendance))
+    metric_4.metric("Model", model_status())
 
 
 def decode_image(image_bytes: bytes) -> np.ndarray:
@@ -184,8 +386,9 @@ def recognize_attendance_image(
 def main() -> None:
     ensure_directories()
     ensure_attendance_file()
+    apply_theme()
 
-    st.title("Face Detection Attendance")
+    show_hero()
 
     with st.sidebar:
         st.header("Recognition")
@@ -204,19 +407,11 @@ def main() -> None:
     with enroll_tab:
         st.subheader("Enroll Person")
         name = st.text_input("Name")
-        target_sample_count = st.slider(
-            "Target samples",
-            min_value=5,
-            max_value=80,
-            value=DEFAULT_SAMPLE_COUNT,
-            step=5,
-        )
         if name.strip():
             try:
                 person_dir = get_enrollment_dir(name, create=False)
                 saved_count = len(list(person_dir.glob("*.png"))) if person_dir else 0
-                st.progress(min(saved_count / target_sample_count, 1.0))
-                st.caption(f"{saved_count} of {target_sample_count} target samples saved.")
+                st.caption(f"{saved_count} sample(s) saved.")
             except Exception as error:
                 st.error(str(error))
 
@@ -282,6 +477,32 @@ def main() -> None:
             except Exception as error:
                 st.error(str(error))
 
+        st.divider()
+        st.subheader("Delete Training Data")
+
+        delete_model_confirmed = st.checkbox(
+            "Confirm delete trained model",
+            key="delete_model_confirmed",
+        )
+        if st.button("Delete Trained Model", type="secondary"):
+            if not delete_model_confirmed:
+                st.error("Confirm before deleting the trained model.")
+            else:
+                delete_trained_model()
+                st.success("Trained model deleted.")
+
+        delete_samples_confirmed = st.checkbox(
+            "Confirm delete enrolled face samples",
+            key="delete_samples_confirmed",
+        )
+        if st.button("Delete Enrolled Face Samples", type="secondary"):
+            if not delete_samples_confirmed:
+                st.error("Confirm before deleting enrolled face samples.")
+            else:
+                delete_training_samples()
+                delete_trained_model()
+                st.success("Enrolled face samples and trained model deleted.")
+
     with attendance_tab:
         st.subheader("Mark Attendance")
         if st.button("Open Attendance Camera"):
@@ -294,21 +515,14 @@ def main() -> None:
                 key="attendance_camera_input",
             )
 
-        uploaded_attendance_image = st.file_uploader(
-            "Or upload an attendance image",
-            type=("jpg", "jpeg", "png"),
-            key="attendance_file_uploader",
-        )
-
-        if st.button("Mark From Image", type="primary"):
-            image_file = attendance_image or uploaded_attendance_image
-            if image_file is None:
-                st.error("Capture or upload an image first.")
+        if st.button("Mark Attendance", type="primary"):
+            if attendance_image is None:
+                st.error("Open the attendance camera and capture an image first.")
                 return
 
             try:
                 annotated_frame, marked_names = recognize_attendance_image(
-                    image_file.getvalue(),
+                    attendance_image.getvalue(),
                     float(confidence_limit),
                 )
                 st.image(annotated_frame, channels="RGB", use_container_width=True)
@@ -318,7 +532,7 @@ def main() -> None:
                     st.info(
                         "No new attendance was marked. Faces may be unknown or already present today."
                     )
-                st.caption(f"Processed at {datetime.now().strftime('%H:%M:%S')}.")
+                st.caption(f"Processed at {current_time_ist().strftime('%H:%M:%S')} IST.")
             except Exception as error:
                 st.error(str(error))
 

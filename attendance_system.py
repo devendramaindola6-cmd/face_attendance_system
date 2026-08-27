@@ -4,7 +4,7 @@ import argparse
 import csv
 import json
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Iterable
 
@@ -26,12 +26,17 @@ DEFAULT_CAMERA_INDEX = 0
 DEFAULT_SAMPLE_COUNT = 40
 DEFAULT_CONFIDENCE_LIMIT = 70.0
 DEFAULT_MARK_COOLDOWN_SECONDS = 60
+IST = timezone(timedelta(hours=5, minutes=30), name="IST")
 
 
 @dataclass(frozen=True)
 class Person:
     person_id: int
     name: str
+
+
+def current_time_ist() -> datetime:
+    return datetime.now(IST)
 
 
 def ensure_directories() -> None:
@@ -251,7 +256,7 @@ def ensure_attendance_file() -> None:
 
 def attendance_already_marked_today(person_id: int) -> bool:
     ensure_attendance_file()
-    today = datetime.now().date().isoformat()
+    today = current_time_ist().date().isoformat()
     with ATTENDANCE_PATH.open("r", newline="", encoding="utf-8") as file:
         reader = csv.DictReader(file)
         return any(
@@ -264,7 +269,7 @@ def mark_attendance(person_id: int, name: str) -> bool:
     if attendance_already_marked_today(person_id):
         return False
 
-    now = datetime.now()
+    now = current_time_ist()
     with ATTENDANCE_PATH.open("a", newline="", encoding="utf-8") as file:
         writer = csv.writer(file)
         writer.writerow(
@@ -309,7 +314,7 @@ def recognize(
             for face in faces:
                 face_image = crop_face(gray, tuple(face))
                 person_id, confidence = recognizer.predict(face_image)
-                now = datetime.now()
+                now = current_time_ist()
 
                 if confidence <= confidence_limit and person_id in labels:
                     name = labels[person_id]
