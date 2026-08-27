@@ -333,16 +333,26 @@ def format_duration(seconds: float) -> str:
     return f"{hours:02d}:{minutes:02d}:{seconds:02d}"
 
 
-def present_time_for_today(person_id: int) -> datetime | None:
+def comparable_name(name: str) -> str:
+    return " ".join(name.strip().casefold().replace("_", " ").split())
+
+
+def present_time_for_today(person_id: int, name: str) -> datetime | None:
     ensure_attendance_file()
     today = current_time_ist().date().isoformat()
+    expected_name = comparable_name(name)
+
     with ATTENDANCE_PATH.open("r", newline="", encoding="utf-8") as file:
         reader = csv.DictReader(file)
         for row in reader:
+            row_name = comparable_name(row.get("name", ""))
             if (
                 row.get("date") == today
-                and row.get("person_id") == str(person_id)
                 and row.get("status") == "Present"
+                and (
+                    row.get("person_id") == str(person_id)
+                    or row_name == expected_name
+                )
             ):
                 try:
                     return datetime.strptime(
@@ -359,9 +369,10 @@ def mark_leaving(person_id: int, name: str) -> tuple[bool, str]:
     if attendance_status_marked_today(person_id, "Checked Out"):
         return False, "Already checked out today"
 
-    present_time = present_time_for_today(person_id)
+    present_time = present_time_for_today(person_id, name)
     if present_time is None:
-        return False, "No present record found for today"
+        today = current_time_ist().date().isoformat()
+        return False, f"No present record found for {today}"
 
     now = current_time_ist()
     duration = format_duration((now - present_time).total_seconds())
