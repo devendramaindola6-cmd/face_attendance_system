@@ -1088,7 +1088,7 @@ def main() -> None:
             if st.button("Train Face Model", type="primary"):
                 try:
                     train()
-                    st.success("Model trained successfully.")
+                    st.success("Model trained successfully with the latest enrolled employee names.")
                 except Exception as error:
                     st.error(str(error))
 

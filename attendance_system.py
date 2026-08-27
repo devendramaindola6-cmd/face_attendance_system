@@ -301,6 +301,21 @@ def train() -> None:
     print(f"Model: {MODEL_PATH}")
 
 
+def labels_from_face_dirs() -> dict[int, str]:
+    ensure_directories()
+    labels: dict[int, str] = {}
+
+    for person_dir in sorted(FACES_DIR.iterdir()):
+        if not person_dir.is_dir():
+            continue
+
+        prefix, _, name = person_dir.name.partition("_")
+        if prefix.isdigit() and name:
+            labels[int(prefix)] = name.replace("_", " ")
+
+    return labels
+
+
 def load_model() -> tuple[cv2.face.LBPHFaceRecognizer, dict[int, str]]:
     if not MODEL_PATH.exists() or not LABELS_PATH.exists():
         raise RuntimeError("Model not found. Run train after enrolling people.")
@@ -309,6 +324,10 @@ def load_model() -> tuple[cv2.face.LBPHFaceRecognizer, dict[int, str]]:
     recognizer.read(str(MODEL_PATH))
     raw_labels = json.loads(LABELS_PATH.read_text(encoding="utf-8"))
     labels = {int(key): value for key, value in raw_labels.items()}
+    current_labels = labels_from_face_dirs()
+    if current_labels:
+        labels = current_labels
+
     return recognizer, labels
 
 
