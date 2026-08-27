@@ -131,20 +131,20 @@ def apply_theme() -> None:
                 );
                 box-shadow: 0 0 22px rgba(45, 212, 191, 0.85);
                 height: 3px;
-                left: 4%;
+                left: 10%;
                 position: absolute;
-                right: 4%;
-                top: 10%;
+                right: 21%;
+                top: 13%;
                 z-index: 2;
             }
 
             @keyframes scanLine {
                 0%, 100% {
-                    top: 11%;
+                    top: 13%;
                     opacity: 0.65;
                 }
                 50% {
-                    top: 88%;
+                    top: 77%;
                     opacity: 1;
                 }
             }
