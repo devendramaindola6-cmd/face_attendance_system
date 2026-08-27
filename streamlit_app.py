@@ -4,6 +4,7 @@ import base64
 import csv
 import hashlib
 import shutil
+from datetime import date
 from pathlib import Path
 
 import cv2
@@ -282,54 +283,65 @@ def enrolled_people() -> pd.DataFrame:
     return pd.DataFrame(rows)
 
 
-def attendance_ids_for_today() -> set[int]:
+def read_attendance_rows() -> list[dict[str, str]]:
     ensure_attendance_file()
-    today = current_time_ist().date().isoformat()
-    marked_ids: set[int] = set()
-
     with ATTENDANCE_PATH.open("r", newline="", encoding="utf-8") as file:
-        reader = csv.DictReader(file)
-        for row in reader:
-            if row.get("date") != today:
-                continue
-
-            person_id = row.get("person_id", "")
-            if person_id.isdigit():
-                marked_ids.add(int(person_id))
-
-    return marked_ids
+        return list(csv.DictReader(file))
 
 
-def add_absent_candidates() -> list[str]:
+def attendance_dates(rows: list[dict[str, str]]) -> list[date]:
+    dates: set[date] = set()
+    for row in rows:
+        try:
+            dates.add(date.fromisoformat(row.get("date", "")))
+        except ValueError:
+            continue
+
+    return sorted(dates)
+
+
+def add_absent_candidates() -> tuple[int, list[str]]:
     people = enrolled_people()
     if people.empty:
-        return []
+        return 0, []
 
-    marked_ids = attendance_ids_for_today()
+    attendance_rows = read_attendance_rows()
+    marked_by_date: dict[str, set[int]] = {}
+    for row in attendance_rows:
+        person_id = row.get("person_id", "")
+        if person_id.isdigit():
+            marked_by_date.setdefault(row.get("date", ""), set()).add(int(person_id))
+
+    pending_dates = attendance_dates(attendance_rows)
     now = current_time_ist()
-    absent_names: list[str] = []
+    absent_dates: set[str] = set()
+    absent_count = 0
 
     with ATTENDANCE_PATH.open("a", newline="", encoding="utf-8") as file:
         writer = csv.writer(file)
-        for row in people.to_dict("records"):
-            person_id = int(row["person_id"])
-            if person_id in marked_ids:
-                continue
+        for pending_date in pending_dates:
+            date_text = pending_date.isoformat()
+            marked_ids = marked_by_date.setdefault(date_text, set())
 
-            name = str(row["name"])
-            writer.writerow(
-                [
-                    now.date().isoformat(),
-                    now.strftime("%H:%M:%S"),
-                    person_id,
-                    name,
-                    "Absent",
-                ]
-            )
-            absent_names.append(name)
-            marked_ids.add(person_id)
+            for row in people.to_dict("records"):
+                person_id = int(row["person_id"])
+                if person_id in marked_ids:
+                    continue
 
-    return absent_names
+                writer.writerow(
+                    [
+                        date_text,
+                        now.strftime("%H:%M:%S"),
+                        person_id,
+                        str(row["name"]),
+                        "Absent",
+                    ]
+                )
+                absent_count += 1
+                absent_dates.add(date_text)
+                marked_ids.add(person_id)
+
+    return absent_count, sorted(absent_dates)
 
 
 def delete_trained_model() -> None:
@@ -649,13 +661,17 @@ def main() -> None:
                 st.error(str(error))
 
         st.divider()
-        if st.button("Add Absent Candidates", type="secondary"):
+        if st.button("Add Absent For Recorded Dates", type="secondary"):
             try:
-                absent_names = add_absent_candidates()
-                if absent_names:
-                    st.success("Absent marked: " + ", ".join(sorted(absent_names)))
+                absent_count, absent_dates = add_absent_candidates()
+                if absent_count:
+                    st.success(
+                        f"Added {absent_count} absent record(s) for "
+                        + ", ".join(absent_dates)
+                        + "."
+                    )
                 else:
-                    st.info("No absent candidates to add for today.")
+                    st.info("No absent candidates to add for recorded attendance dates.")
             except Exception as error:
                 st.error(str(error))
 
