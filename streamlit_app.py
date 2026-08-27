@@ -4,6 +4,7 @@ import base64
 import csv
 import hmac
 import hashlib
+import json
 import os
 import shutil
 from datetime import date
@@ -13,6 +14,7 @@ import cv2
 import numpy as np
 import pandas as pd
 import streamlit as st
+import streamlit.components.v1 as components
 
 from attendance_system import (
     ATTENDANCE_PATH,
@@ -297,6 +299,41 @@ def write_attendance(attendance: pd.DataFrame) -> None:
 
 def clear_attendance() -> None:
     write_attendance(pd.DataFrame(columns=ATTENDANCE_COLUMNS))
+
+
+def speak_attendance(names: list[str]) -> None:
+    if not names:
+        return
+
+    unique_names = sorted(set(names))
+    if len(unique_names) == 1:
+        message = f"{unique_names[0]} is present"
+    else:
+        message = f"{', '.join(unique_names[:-1])}, and {unique_names[-1]} are present"
+
+    components.html(
+        f"""
+        <script>
+            const message = {json.dumps(message)};
+            const speak = () => {{
+                if (!("speechSynthesis" in window)) {{
+                    return;
+                }}
+
+                window.speechSynthesis.cancel();
+                const utterance = new SpeechSynthesisUtterance(message);
+                utterance.rate = 0.95;
+                utterance.pitch = 1;
+                utterance.volume = 1;
+                window.speechSynthesis.speak(utterance);
+            }};
+
+            speak();
+        </script>
+        """,
+        height=0,
+        width=0,
+    )
 
 
 def secret_value(key: str) -> str | None:
@@ -816,6 +853,7 @@ def main() -> None:
                 st.image(annotated_frame, channels="RGB", use_container_width=True)
                 if marked_names:
                     st.success("Marked: " + ", ".join(sorted(set(marked_names))))
+                    speak_attendance(marked_names)
                 else:
                     st.info(
                         "No new attendance was marked. Faces may be unknown or already present today."
