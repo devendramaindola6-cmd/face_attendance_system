@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import base64
 import hashlib
 import shutil
 from pathlib import Path
@@ -102,6 +103,50 @@ def apply_theme() -> None:
                 font-size: 0.86rem;
                 font-weight: 700;
                 padding: 0.5rem 0.8rem;
+            }
+
+            .scanner-frame {
+                border: 1px solid rgba(15, 118, 110, 0.2);
+                border-radius: 8px;
+                box-shadow: 0 24px 54px rgba(16, 32, 39, 0.16);
+                overflow: hidden;
+                position: relative;
+            }
+
+            .scanner-frame img {
+                border-radius: 0;
+                display: block;
+                width: 100%;
+            }
+
+            .scanner-line {
+                animation: scanLine 3.2s ease-in-out infinite;
+                background: linear-gradient(
+                    90deg,
+                    transparent,
+                    rgba(132, 255, 214, 0.28),
+                    rgba(132, 255, 214, 0.96),
+                    rgba(132, 255, 214, 0.28),
+                    transparent
+                );
+                box-shadow: 0 0 22px rgba(45, 212, 191, 0.85);
+                height: 3px;
+                left: 4%;
+                position: absolute;
+                right: 4%;
+                top: 10%;
+                z-index: 2;
+            }
+
+            @keyframes scanLine {
+                0%, 100% {
+                    top: 11%;
+                    opacity: 0.65;
+                }
+                50% {
+                    top: 88%;
+                    opacity: 1;
+                }
             }
 
             [data-testid="stMetric"] {
@@ -255,6 +300,10 @@ def model_status() -> str:
     return "Ready" if MODEL_PATH.exists() and LABELS_PATH.exists() else "Not trained"
 
 
+def image_as_base64(path: Path) -> str:
+    return base64.b64encode(path.read_bytes()).decode("ascii")
+
+
 def show_hero() -> None:
     people = enrolled_people()
     attendance = read_attendance()
@@ -282,7 +331,19 @@ def show_hero() -> None:
 
     with right:
         if HERO_IMAGE_PATH.exists():
-            st.image(HERO_IMAGE_PATH, use_container_width=True)
+            image_data = image_as_base64(HERO_IMAGE_PATH)
+            st.markdown(
+                f"""
+                <div class="scanner-frame">
+                    <img
+                        src="data:image/png;base64,{image_data}"
+                        alt="Aisha shown inside a face attendance scanner interface"
+                    />
+                    <div class="scanner-line"></div>
+                </div>
+                """,
+                unsafe_allow_html=True,
+            )
 
     metric_1, metric_2, metric_3, metric_4 = st.columns(4)
     metric_1.metric("Enrolled People", len(people))
