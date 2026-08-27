@@ -210,8 +210,59 @@ def apply_theme() -> None:
             }
 
             [data-testid="stSidebar"] {
-                background: #ffffff;
+                background:
+                    linear-gradient(180deg, #ffffff 0%, #f1fbf7 52%, #fff8ed 100%);
                 border-right: 1px solid rgba(16, 32, 39, 0.08);
+            }
+
+            .admin-panel {
+                background: linear-gradient(135deg, #0f766e, #102027);
+                border-radius: 8px;
+                box-shadow: 0 16px 34px rgba(16, 32, 39, 0.18);
+                color: #ffffff;
+                margin-top: 0.8rem;
+                padding: 1rem;
+            }
+
+            .admin-panel-title {
+                font-size: 1rem;
+                font-weight: 900;
+                margin-bottom: 0.35rem;
+            }
+
+            .admin-panel-copy {
+                color: rgba(255, 255, 255, 0.78);
+                font-size: 0.82rem;
+                line-height: 1.45;
+                margin: 0;
+            }
+
+            .admin-status {
+                background: rgba(255, 255, 255, 0.76);
+                border: 1px solid rgba(16, 32, 39, 0.08);
+                border-radius: 8px;
+                color: #52646c;
+                font-size: 0.84rem;
+                font-weight: 800;
+                margin: 0.75rem 0;
+                padding: 0.75rem;
+            }
+
+            .admin-status strong {
+                color: #102027;
+                display: block;
+                font-size: 0.92rem;
+                margin-bottom: 0.1rem;
+            }
+
+            .admin-status.signed-in {
+                background: rgba(22, 163, 74, 0.12);
+                border-color: rgba(22, 163, 74, 0.28);
+            }
+
+            .admin-status.warning {
+                background: rgba(245, 158, 11, 0.14);
+                border-color: rgba(245, 158, 11, 0.28);
             }
 
             h2, h3 {
@@ -275,12 +326,38 @@ def check_admin_credentials(username: str, password: str) -> bool:
     )
 
 
+def sync_confidence_from_sidebar() -> None:
+    st.session_state.train_recognition_confidence = st.session_state.recognition_confidence
+
+
+def sync_confidence_from_train() -> None:
+    st.session_state.recognition_confidence = st.session_state.train_recognition_confidence
+
+
 def show_admin_login() -> bool:
     st.sidebar.divider()
-    st.sidebar.header("Admin")
+    st.sidebar.markdown(
+        """
+        <div class="admin-panel">
+            <div class="admin-panel-title">Admin Console</div>
+            <p class="admin-panel-copy">
+                Sign in to manage training, records, exports, and cleanup tools.
+            </p>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
 
     if st.session_state.get("is_admin", False):
-        st.sidebar.success("Admin signed in.")
+        st.sidebar.markdown(
+            """
+            <div class="admin-status signed-in">
+                <strong>Access granted</strong>
+                Train and Records are unlocked.
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
         if st.sidebar.button("Log Out"):
             st.session_state.is_admin = False
             st.rerun()
@@ -288,7 +365,15 @@ def show_admin_login() -> bool:
 
     admin_username, admin_password = admin_credentials()
     if not admin_username or not admin_password:
-        st.sidebar.warning("Admin login is not configured.")
+        st.sidebar.markdown(
+            """
+            <div class="admin-status warning">
+                <strong>Login not configured</strong>
+                Add admin credentials in Streamlit secrets.
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
         return False
 
     with st.sidebar.form("admin_login_form"):
@@ -630,6 +715,11 @@ def main() -> None:
     ensure_directories()
     ensure_attendance_file()
     apply_theme()
+    st.session_state.setdefault("recognition_confidence", int(DEFAULT_CONFIDENCE_LIMIT))
+    st.session_state.setdefault(
+        "train_recognition_confidence",
+        st.session_state.recognition_confidence,
+    )
 
     with st.sidebar:
         st.header("Recognition")
@@ -637,8 +727,9 @@ def main() -> None:
             "Recognition confidence",
             min_value=40,
             max_value=100,
-            value=int(DEFAULT_CONFIDENCE_LIMIT),
             help="Lower values are stricter.",
+            key="recognition_confidence",
+            on_change=sync_confidence_from_sidebar,
         )
         is_admin = show_admin_login()
 
@@ -749,6 +840,14 @@ def main() -> None:
     if is_admin:
         with train_tab:
             st.subheader("Train Model")
+            confidence_limit = st.slider(
+                "Recognition confidence",
+                min_value=40,
+                max_value=100,
+                help="Lower values are stricter. This same value is used while taking attendance.",
+                key="train_recognition_confidence",
+                on_change=sync_confidence_from_train,
+            )
             training_people = enrolled_people()
             if training_people.empty:
                 st.info("No enrolled people are available for training yet.")
