@@ -1,0 +1,5 @@
+face_detection_venv/
+__pycache__/
+*.pyc
+attendance/
+data/faces/
