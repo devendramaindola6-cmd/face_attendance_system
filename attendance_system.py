@@ -92,6 +92,50 @@ def detect_largest_face(
     return max(detected_faces, key=lambda face: face[2] * face[3])
 
 
+def overlap_ratio(
+    first_face: tuple[int, int, int, int],
+    second_face: tuple[int, int, int, int],
+) -> float:
+    first_x, first_y, first_width, first_height = first_face
+    second_x, second_y, second_width, second_height = second_face
+
+    first_right = first_x + first_width
+    first_bottom = first_y + first_height
+    second_right = second_x + second_width
+    second_bottom = second_y + second_height
+
+    overlap_left = max(first_x, second_x)
+    overlap_top = max(first_y, second_y)
+    overlap_right = min(first_right, second_right)
+    overlap_bottom = min(first_bottom, second_bottom)
+
+    overlap_width = max(0, overlap_right - overlap_left)
+    overlap_height = max(0, overlap_bottom - overlap_top)
+    overlap_area = overlap_width * overlap_height
+
+    first_area = first_width * first_height
+    second_area = second_width * second_height
+    smaller_area = min(first_area, second_area)
+    if smaller_area == 0:
+        return 0
+
+    return overlap_area / smaller_area
+
+
+def merge_overlapping_faces(
+    faces: list[tuple[int, int, int, int]],
+    overlap_limit: float = 0.45,
+) -> list[tuple[int, int, int, int]]:
+    merged_faces: list[tuple[int, int, int, int]] = []
+
+    for face in sorted(faces, key=lambda item: item[2] * item[3], reverse=True):
+        if any(overlap_ratio(face, kept_face) >= overlap_limit for kept_face in merged_faces):
+            continue
+        merged_faces.append(face)
+
+    return merged_faces
+
+
 def detect_faces(
     detector: cv2.CascadeClassifier, gray_frame: np.ndarray
 ) -> list[tuple[int, int, int, int]]:
@@ -114,7 +158,7 @@ def detect_faces(
                     tuple(int(value) for value in face) for face in faces
                 )
 
-    return detected_faces
+    return merge_overlapping_faces(detected_faces)
 
 
 def crop_face(gray_frame: np.ndarray, face: tuple[int, int, int, int]) -> np.ndarray:
