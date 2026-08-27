@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import base64
+import csv
 import hashlib
 import shutil
 from pathlib import Path
@@ -279,6 +280,56 @@ def enrolled_people() -> pd.DataFrame:
         )
 
     return pd.DataFrame(rows)
+
+
+def attendance_ids_for_today() -> set[int]:
+    ensure_attendance_file()
+    today = current_time_ist().date().isoformat()
+    marked_ids: set[int] = set()
+
+    with ATTENDANCE_PATH.open("r", newline="", encoding="utf-8") as file:
+        reader = csv.DictReader(file)
+        for row in reader:
+            if row.get("date") != today:
+                continue
+
+            person_id = row.get("person_id", "")
+            if person_id.isdigit():
+                marked_ids.add(int(person_id))
+
+    return marked_ids
+
+
+def add_absent_candidates() -> list[str]:
+    people = enrolled_people()
+    if people.empty:
+        return []
+
+    marked_ids = attendance_ids_for_today()
+    now = current_time_ist()
+    absent_names: list[str] = []
+
+    with ATTENDANCE_PATH.open("a", newline="", encoding="utf-8") as file:
+        writer = csv.writer(file)
+        for row in people.to_dict("records"):
+            person_id = int(row["person_id"])
+            if person_id in marked_ids:
+                continue
+
+            name = str(row["name"])
+            writer.writerow(
+                [
+                    now.date().isoformat(),
+                    now.strftime("%H:%M:%S"),
+                    person_id,
+                    name,
+                    "Absent",
+                ]
+            )
+            absent_names.append(name)
+            marked_ids.add(person_id)
+
+    return absent_names
 
 
 def delete_trained_model() -> None:
@@ -594,6 +645,17 @@ def main() -> None:
                         "No new attendance was marked. Faces may be unknown or already present today."
                     )
                 st.caption(f"Processed at {current_time_ist().strftime('%H:%M:%S')} IST.")
+            except Exception as error:
+                st.error(str(error))
+
+        st.divider()
+        if st.button("Add Absent Candidates", type="secondary"):
+            try:
+                absent_names = add_absent_candidates()
+                if absent_names:
+                    st.success("Absent marked: " + ", ".join(sorted(absent_names)))
+                else:
+                    st.info("No absent candidates to add for today.")
             except Exception as error:
                 st.error(str(error))
 
