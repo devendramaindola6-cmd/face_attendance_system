@@ -310,68 +310,57 @@ def schedule_reset(*reset_names: str) -> None:
         st.session_state[f"{reset_name}_reset_at"] = deadline
 
 
-def apply_pending_resets() -> None:
+def apply_pending_resets() -> bool:
     now = time.time()
+    did_reset = False
 
     if st.session_state.get("enrollment_reset_at", float("inf")) <= now:
-        st.session_state.enrollment_name_input = ""
-        st.session_state.pop("enrollment_camera_input", None)
-        st.session_state.pop("enrollment_file_uploader", None)
+        st.session_state.enrollment_name_key_version += 1
+        st.session_state.enrollment_camera_key_version += 1
+        st.session_state.enrollment_upload_key_version += 1
         st.session_state.pop("enrollment_name", None)
         st.session_state.pop("enrollment_dir", None)
         st.session_state.pop("saved_sample_hashes", None)
         st.session_state.pop("enrollment_reset_at", None)
+        did_reset = True
 
     if st.session_state.get("attendance_reset_at", float("inf")) <= now:
         st.session_state.show_attendance_camera = False
-        st.session_state.pop("attendance_camera_input", None)
+        st.session_state.attendance_camera_key_version += 1
         st.session_state.pop("attendance_reset_at", None)
+        did_reset = True
 
     if st.session_state.get("leaving_reset_at", float("inf")) <= now:
         st.session_state.show_leaving_camera = False
-        st.session_state.pop("leaving_camera_input", None)
+        st.session_state.leaving_camera_key_version += 1
         st.session_state.pop("leaving_reset_at", None)
+        did_reset = True
+
+    return did_reset
 
 
+@st.fragment(run_every="1s")
 def render_pending_reset_refresh() -> None:
     now = time.time()
-    deadlines = [
-        deadline
+    has_pending_reset = any(
+        key.endswith("_reset_at") and isinstance(deadline, float) and deadline > now
         for key, deadline in st.session_state.items()
-        if key.endswith("_reset_at") and isinstance(deadline, float) and deadline > now
-    ]
-    if not deadlines:
-        return
-
-    delay_ms = max(250, int((min(deadlines) - now) * 1000) + 250)
-    components.html(
-        f"""
-        <script>
-            setTimeout(() => {{
-                window.parent.location.reload();
-            }}, {delay_ms});
-        </script>
-        """,
-        height=0,
-        width=0,
     )
-
-
-def speak_attendance(names: list[str]) -> None:
-    if not names:
+    if not has_pending_reset:
         return
 
-    unique_names = sorted(set(names))
-    if len(unique_names) == 1:
-        message = f"{unique_names[0]} is present"
-    else:
-        message = f"{', '.join(unique_names[:-1])}, and {unique_names[-1]} are present"
+    if apply_pending_resets():
+        st.rerun()
+
+
+def speak_message(message: str, button_label: str) -> None:
+    safe_button_id = "speak-" + hashlib.sha256(message.encode("utf-8")).hexdigest()[:12]
 
     components.html(
         f"""
         <div>
-            <button id="speak-attendance-button">
-                Play Voice Announcement
+            <button id="{safe_button_id}">
+                {button_label}
             </button>
         </div>
         <script>
@@ -389,7 +378,7 @@ def speak_attendance(names: list[str]) -> None:
                 window.speechSynthesis.speak(utterance);
             }};
 
-            const button = document.getElementById("speak-attendance-button");
+            const button = document.getElementById("{safe_button_id}");
             button.addEventListener("click", speak);
             setTimeout(speak, 250);
         </script>
@@ -399,7 +388,7 @@ def speak_attendance(names: list[str]) -> None:
                 font-family: "Source Sans Pro", sans-serif;
             }}
 
-            #speak-attendance-button {{
+            #{safe_button_id} {{
                 background: linear-gradient(135deg, #0f766e, #16a34a);
                 border: 0;
                 border-radius: 8px;
@@ -416,6 +405,32 @@ def speak_attendance(names: list[str]) -> None:
         """,
         height=48,
     )
+
+
+def speak_attendance(names: list[str]) -> None:
+    if not names:
+        return
+
+    unique_names = sorted(set(names))
+    if len(unique_names) == 1:
+        message = f"{unique_names[0]} is present"
+    else:
+        message = f"{', '.join(unique_names[:-1])}, and {unique_names[-1]} are present"
+
+    speak_message(message, "Play Voice Announcement")
+
+
+def speak_leaving(names: list[str]) -> None:
+    if not names:
+        return
+
+    unique_names = sorted(set(names))
+    if len(unique_names) == 1:
+        message = f"{unique_names[0]} checked out"
+    else:
+        message = f"{', '.join(unique_names[:-1])}, and {unique_names[-1]} checked out"
+
+    speak_message(message, "Play Checkout Announcement")
 
 
 def secret_value(key: str) -> str | None:
@@ -847,7 +862,11 @@ def main() -> None:
         "train_recognition_confidence",
         st.session_state.recognition_confidence,
     )
-    st.session_state.setdefault("enrollment_name_input", "")
+    st.session_state.setdefault("enrollment_name_key_version", 0)
+    st.session_state.setdefault("enrollment_camera_key_version", 0)
+    st.session_state.setdefault("enrollment_upload_key_version", 0)
+    st.session_state.setdefault("attendance_camera_key_version", 0)
+    st.session_state.setdefault("leaving_camera_key_version", 0)
     apply_pending_resets()
 
     with st.sidebar:
@@ -869,7 +888,10 @@ def main() -> None:
 
     with enroll_tab:
         st.subheader("Enroll Employee")
-        name = st.text_input("Name", key="enrollment_name_input")
+        name = st.text_input(
+            "Name",
+            key=f"enrollment_name_input_{st.session_state.enrollment_name_key_version}",
+        )
         if name.strip():
             try:
                 person_dir = get_enrollment_dir(name, create=False)
@@ -885,14 +907,14 @@ def main() -> None:
         if st.session_state.get("show_enrollment_camera", False):
             camera_image = st.camera_input(
                 "Capture a face sample",
-                key="enrollment_camera_input",
+                key=f"enrollment_camera_input_{st.session_state.enrollment_camera_key_version}",
             )
 
         uploaded_samples = st.file_uploader(
             "Or upload face sample images",
             type=("jpg", "jpeg", "png"),
             accept_multiple_files=True,
-            key="enrollment_file_uploader",
+            key=f"enrollment_file_uploader_{st.session_state.enrollment_upload_key_version}",
         )
 
         if st.button("Save Samples", type="primary"):
@@ -936,7 +958,7 @@ def main() -> None:
         if st.session_state.get("show_attendance_camera", False):
             attendance_image = st.camera_input(
                 "Capture attendance image",
-                key="attendance_camera_input",
+                key=f"attendance_camera_input_{st.session_state.attendance_camera_key_version}",
             )
 
         if st.button("Mark Attendance", type="primary"):
@@ -981,7 +1003,7 @@ def main() -> None:
         if st.session_state.get("show_leaving_camera", False):
             leaving_image = st.camera_input(
                 "Capture leaving image",
-                key="leaving_camera_input",
+                key=f"leaving_camera_input_{st.session_state.leaving_camera_key_version}",
             )
 
         if st.button("Mark Leaving", type="primary"):
@@ -1004,6 +1026,7 @@ def main() -> None:
                 st.image(annotated_frame, channels="RGB", use_container_width=True)
                 if marked_names:
                     st.success("Leaving marked: " + ", ".join(sorted(set(marked_names))))
+                    speak_leaving(marked_names)
                 elif recognized_names:
                     st.info("; ".join(recognition_messages))
                 elif face_count:
