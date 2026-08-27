@@ -30,9 +30,10 @@ The app opens in your browser at `http://localhost:8501`.
 Use the tabs in order:
 
 1. `Enroll` - enter a name and save webcam snapshots or uploaded face images.
-2. `Train` - train the face model.
-3. `Take Attendance` - capture an attendance image, mark recognized employees present, or mark leaving.
-4. `Records` - view or download the attendance CSV.
+2. `Take Attendance` - capture an attendance image and mark recognized employees present.
+3. `Leaving` - capture a leaving image and mark recognized employees checked out.
+4. `Train` - admin-only tab to train the face model.
+5. `Records` - admin-only tab to view or download the attendance CSV.
 
 ## Deploy On Streamlit Community Cloud
 
@@ -55,7 +56,7 @@ ADMIN_USERNAME = "admin"
 ADMIN_PASSWORD = "change-this-password"
 ```
 
-Without these secrets, public users can still use `Enroll` and `Take Attendance`, but `Train` and `Records` stay hidden.
+Without these secrets, public users can still use `Enroll`, `Take Attendance`, and `Leaving`, but `Train` and `Records` stay hidden.
 
 `data/model/` is allowed by `.gitignore`, so you can deploy a pre-trained model if needed. `data/faces/` and `attendance/` are ignored because they can contain private or runtime-generated data. Files created on Streamlit Community Cloud are temporary and can disappear after the app restarts.
 

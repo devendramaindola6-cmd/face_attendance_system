@@ -7,6 +7,7 @@ import hashlib
 import json
 import os
 import shutil
+import time
 from datetime import date
 from pathlib import Path
 
@@ -42,6 +43,7 @@ HERO_IMAGE_PATH = ASSETS_DIR / "aisha-scanner-facerec.png"
 ATTENDANCE_COLUMNS = ["date", "time", "person_id", "name", "status", "duration"]
 ADMIN_USERNAME_KEY = "ADMIN_USERNAME"
 ADMIN_PASSWORD_KEY = "ADMIN_PASSWORD"
+RESET_SECONDS = 30
 
 
 st.set_page_config(
@@ -300,6 +302,59 @@ def write_attendance(attendance: pd.DataFrame) -> None:
 
 def clear_attendance() -> None:
     write_attendance(pd.DataFrame(columns=ATTENDANCE_COLUMNS))
+
+
+def schedule_reset(*reset_names: str) -> None:
+    deadline = time.time() + RESET_SECONDS
+    for reset_name in reset_names:
+        st.session_state[f"{reset_name}_reset_at"] = deadline
+
+
+def apply_pending_resets() -> None:
+    now = time.time()
+
+    if st.session_state.get("enrollment_reset_at", float("inf")) <= now:
+        st.session_state.enrollment_name_input = ""
+        st.session_state.pop("enrollment_camera_input", None)
+        st.session_state.pop("enrollment_file_uploader", None)
+        st.session_state.pop("enrollment_name", None)
+        st.session_state.pop("enrollment_dir", None)
+        st.session_state.pop("saved_sample_hashes", None)
+        st.session_state.pop("enrollment_reset_at", None)
+
+    if st.session_state.get("attendance_reset_at", float("inf")) <= now:
+        st.session_state.show_attendance_camera = False
+        st.session_state.pop("attendance_camera_input", None)
+        st.session_state.pop("attendance_reset_at", None)
+
+    if st.session_state.get("leaving_reset_at", float("inf")) <= now:
+        st.session_state.show_leaving_camera = False
+        st.session_state.pop("leaving_camera_input", None)
+        st.session_state.pop("leaving_reset_at", None)
+
+
+def render_pending_reset_refresh() -> None:
+    now = time.time()
+    deadlines = [
+        deadline
+        for key, deadline in st.session_state.items()
+        if key.endswith("_reset_at") and isinstance(deadline, float) and deadline > now
+    ]
+    if not deadlines:
+        return
+
+    delay_ms = max(250, int((min(deadlines) - now) * 1000) + 250)
+    components.html(
+        f"""
+        <script>
+            setTimeout(() => {{
+                window.parent.location.reload();
+            }}, {delay_ms});
+        </script>
+        """,
+        height=0,
+        width=0,
+    )
 
 
 def speak_attendance(names: list[str]) -> None:
@@ -792,26 +847,29 @@ def main() -> None:
         "train_recognition_confidence",
         st.session_state.recognition_confidence,
     )
+    st.session_state.setdefault("enrollment_name_input", "")
+    apply_pending_resets()
 
     with st.sidebar:
         is_admin = show_admin_login()
 
     show_hero(is_admin)
 
-    tab_names = ["Enroll", "Take Attendance"]
+    tab_names = ["Enroll", "Take Attendance", "Leaving"]
     if is_admin:
         tab_names.extend(["Train", "Records"])
 
     tabs = st.tabs(tab_names)
     enroll_tab = tabs[0]
     attendance_tab = tabs[1]
+    leaving_tab = tabs[2]
     if is_admin:
-        train_tab = tabs[2]
-        records_tab = tabs[3]
+        train_tab = tabs[3]
+        records_tab = tabs[4]
 
     with enroll_tab:
         st.subheader("Enroll Employee")
-        name = st.text_input("Name")
+        name = st.text_input("Name", key="enrollment_name_input")
         if name.strip():
             try:
                 person_dir = get_enrollment_dir(name, create=False)
@@ -862,6 +920,8 @@ def main() -> None:
                     if saved:
                         st.success(f"Saved {saved} new sample(s).")
                         st.info("This enrollment is now available in the Train tab.")
+                        st.caption("Enrollment fields will reset in 30 seconds.")
+                        schedule_reset("enrollment")
                     else:
                         st.warning("No new samples were saved.")
                     for message in messages:
@@ -879,16 +939,11 @@ def main() -> None:
                 key="attendance_camera_input",
             )
 
-        attendance_button, leaving_button = st.columns(2)
-        mark_attendance_clicked = attendance_button.button("Mark Attendance", type="primary")
-        mark_leaving_clicked = leaving_button.button("Mark Leaving", type="secondary")
-
-        if mark_attendance_clicked or mark_leaving_clicked:
+        if st.button("Mark Attendance", type="primary"):
             if attendance_image is None:
                 st.error("Open the attendance camera and capture an image first.")
                 return
 
-            action = "leaving" if mark_leaving_clicked else "attendance"
             try:
                 (
                     annotated_frame,
@@ -899,15 +954,12 @@ def main() -> None:
                 ) = recognize_attendance_image(
                     attendance_image.getvalue(),
                     float(st.session_state.recognition_confidence),
-                    action,
+                    "attendance",
                 )
                 st.image(annotated_frame, channels="RGB", use_container_width=True)
                 if marked_names:
-                    if action == "leaving":
-                        st.success("Leaving marked: " + ", ".join(sorted(set(marked_names))))
-                    else:
-                        st.success("Marked: " + ", ".join(sorted(set(marked_names))))
-                        speak_attendance(marked_names)
+                    st.success("Marked: " + ", ".join(sorted(set(marked_names))))
+                    speak_attendance(marked_names)
                 elif recognized_names:
                     st.info("; ".join(recognition_messages))
                 elif face_count:
@@ -915,6 +967,52 @@ def main() -> None:
                 else:
                     st.warning("No face detected. Try better lighting and face the camera.")
                 st.caption(f"Processed at {current_time_ist().strftime('%H:%M:%S')} IST.")
+                st.caption("Attendance image will reset in 30 seconds.")
+                schedule_reset("attendance")
+            except Exception as error:
+                st.error(str(error))
+
+    with leaving_tab:
+        st.subheader("Mark Leaving")
+        if st.button("Open Leaving Camera"):
+            st.session_state.show_leaving_camera = True
+
+        leaving_image = None
+        if st.session_state.get("show_leaving_camera", False):
+            leaving_image = st.camera_input(
+                "Capture leaving image",
+                key="leaving_camera_input",
+            )
+
+        if st.button("Mark Leaving", type="primary"):
+            if leaving_image is None:
+                st.error("Open the leaving camera and capture an image first.")
+                return
+
+            try:
+                (
+                    annotated_frame,
+                    marked_names,
+                    recognized_names,
+                    face_count,
+                    recognition_messages,
+                ) = recognize_attendance_image(
+                    leaving_image.getvalue(),
+                    float(st.session_state.recognition_confidence),
+                    "leaving",
+                )
+                st.image(annotated_frame, channels="RGB", use_container_width=True)
+                if marked_names:
+                    st.success("Leaving marked: " + ", ".join(sorted(set(marked_names))))
+                elif recognized_names:
+                    st.info("; ".join(recognition_messages))
+                elif face_count:
+                    st.warning("Face detected, but it did not match a trained employee.")
+                else:
+                    st.warning("No face detected. Try better lighting and face the camera.")
+                st.caption(f"Processed at {current_time_ist().strftime('%H:%M:%S')} IST.")
+                st.caption("Leaving image will reset in 30 seconds.")
+                schedule_reset("leaving")
             except Exception as error:
                 st.error(str(error))
 
@@ -1012,6 +1110,8 @@ def main() -> None:
                         st.info("No absent candidates to add for recorded attendance dates.")
                 except Exception as error:
                     st.error(str(error))
+
+    render_pending_reset_refresh()
 
 
 if __name__ == "__main__":
