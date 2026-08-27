@@ -24,6 +24,7 @@ from attendance_system import (
     LABELS_PATH,
     crop_face,
     current_time_ist,
+    detect_faces,
     detect_largest_face,
     draw_box,
     ensure_attendance_file,
@@ -350,7 +351,7 @@ def render_pending_reset_refresh() -> None:
         return
 
     if apply_pending_resets():
-        st.rerun()
+        st.rerun(scope="app")
 
 
 def speak_message(message: str, button_label: str) -> None:
@@ -818,12 +819,7 @@ def recognize_attendance_image(
     recognized_names: list[str] = []
     messages: list[str] = []
 
-    faces = detector.detectMultiScale(
-        gray,
-        scaleFactor=1.2,
-        minNeighbors=5,
-        minSize=(80, 80),
-    )
+    faces = detect_faces(detector, gray)
 
     for face in faces:
         face_tuple = tuple(int(value) for value in face)
