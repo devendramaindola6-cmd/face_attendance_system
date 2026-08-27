@@ -2,7 +2,9 @@ from __future__ import annotations
 
 import base64
 import csv
+import hmac
 import hashlib
+import os
 import shutil
 from datetime import date
 from pathlib import Path
@@ -34,6 +36,9 @@ from attendance_system import (
 
 ASSETS_DIR = Path(__file__).resolve().parent / "assets"
 HERO_IMAGE_PATH = ASSETS_DIR / "aisha-scanner-facerec.png"
+ATTENDANCE_COLUMNS = ["date", "time", "person_id", "name", "status"]
+ADMIN_USERNAME_KEY = "ADMIN_USERNAME"
+ADMIN_PASSWORD_KEY = "ADMIN_PASSWORD"
 
 
 st.set_page_config(
@@ -234,12 +239,79 @@ def read_attendance() -> pd.DataFrame:
     return pd.read_csv(ATTENDANCE_PATH)
 
 
+def write_attendance(attendance: pd.DataFrame) -> None:
+    attendance = attendance.reindex(columns=ATTENDANCE_COLUMNS)
+    attendance.to_csv(ATTENDANCE_PATH, index=False)
+
+
+def clear_attendance() -> None:
+    write_attendance(pd.DataFrame(columns=ATTENDANCE_COLUMNS))
+
+
+def secret_value(key: str) -> str | None:
+    try:
+        value = st.secrets.get(key)
+    except Exception:
+        value = None
+
+    if value is None:
+        value = os.getenv(key)
+
+    return str(value) if value else None
+
+
+def admin_credentials() -> tuple[str | None, str | None]:
+    return secret_value(ADMIN_USERNAME_KEY), secret_value(ADMIN_PASSWORD_KEY)
+
+
+def check_admin_credentials(username: str, password: str) -> bool:
+    admin_username, admin_password = admin_credentials()
+    if not admin_username or not admin_password:
+        return False
+
+    return hmac.compare_digest(username, admin_username) and hmac.compare_digest(
+        password,
+        admin_password,
+    )
+
+
+def show_admin_login() -> bool:
+    st.sidebar.divider()
+    st.sidebar.header("Admin")
+
+    if st.session_state.get("is_admin", False):
+        st.sidebar.success("Admin signed in.")
+        if st.sidebar.button("Log Out"):
+            st.session_state.is_admin = False
+            st.rerun()
+        return True
+
+    admin_username, admin_password = admin_credentials()
+    if not admin_username or not admin_password:
+        st.sidebar.warning("Admin login is not configured.")
+        return False
+
+    with st.sidebar.form("admin_login_form"):
+        username = st.text_input("Username")
+        password = st.text_input("Password", type="password")
+        submitted = st.form_submit_button("Admin Login")
+
+    if submitted:
+        if check_admin_credentials(username, password):
+            st.session_state.is_admin = True
+            st.sidebar.success("Admin signed in.")
+            st.rerun()
+        else:
+            st.sidebar.error("Invalid admin credentials.")
+
+    return False
+
+
 def show_attendance_table() -> None:
     attendance = read_attendance()
     st.subheader("Attendance")
     if st.button("Delete CSV Data", type="secondary"):
-        ensure_attendance_file()
-        ATTENDANCE_PATH.write_text("date,time,person_id,name,status\n", encoding="utf-8")
+        clear_attendance()
         st.success("Attendance CSV data deleted.")
         attendance = read_attendance()
 
@@ -247,7 +319,31 @@ def show_attendance_table() -> None:
         st.info("No attendance marked yet.")
         return
 
-    st.dataframe(attendance.tail(50), use_container_width=True, hide_index=True)
+    editable_attendance = attendance.reset_index(names="row_id")
+    editable_attendance.insert(0, "delete", False)
+
+    edited_attendance = st.data_editor(
+        editable_attendance,
+        column_config={
+            "delete": st.column_config.CheckboxColumn("Delete"),
+            "row_id": st.column_config.NumberColumn("Row"),
+        },
+        disabled=ATTENDANCE_COLUMNS + ["row_id"],
+        hide_index=True,
+        use_container_width=True,
+        key="attendance_row_editor",
+    )
+
+    selected_rows = edited_attendance.loc[edited_attendance["delete"], "row_id"].tolist()
+    if st.button("Delete Selected Rows", type="secondary"):
+        if not selected_rows:
+            st.error("Select one or more rows to delete.")
+        else:
+            updated_attendance = attendance.drop(index=selected_rows).reset_index(drop=True)
+            write_attendance(updated_attendance)
+            st.success(f"Deleted {len(selected_rows)} selected row(s).")
+            st.rerun()
+
     st.download_button(
         "Download CSV",
         data=ATTENDANCE_PATH.read_bytes(),
@@ -359,6 +455,28 @@ def delete_training_samples() -> None:
     st.session_state.pop("saved_sample_hashes", None)
 
 
+def delete_training_people(person_ids: list[int]) -> int:
+    deleted_count = 0
+    selected_ids = set(person_ids)
+
+    for person_dir in FACES_DIR.iterdir():
+        if not person_dir.is_dir():
+            continue
+
+        prefix = person_dir.name.split("_", 1)[0]
+        if prefix.isdigit() and int(prefix) in selected_ids:
+            shutil.rmtree(person_dir)
+            deleted_count += 1
+
+    if deleted_count:
+        delete_trained_model()
+        st.session_state.pop("enrollment_name", None)
+        st.session_state.pop("enrollment_dir", None)
+        st.session_state.pop("saved_sample_hashes", None)
+
+    return deleted_count
+
+
 def model_status() -> str:
     return "Ready" if MODEL_PATH.exists() and LABELS_PATH.exists() else "Not trained"
 
@@ -367,7 +485,7 @@ def image_as_base64(path: Path) -> str:
     return base64.b64encode(path.read_bytes()).decode("ascii")
 
 
-def show_hero() -> None:
+def show_hero(is_admin: bool) -> None:
     people = enrolled_people()
     attendance = read_attendance()
     sample_total = int(people["samples"].sum()) if not people.empty else 0
@@ -386,7 +504,7 @@ def show_hero() -> None:
                 <span class="hero-pill">Cloud ready</span>
                 <span class="hero-pill">Browser camera</span>
                 <span class="hero-pill">IST records</span>
-                <span class="hero-pill">CSV export</span>
+                <span class="hero-pill">Admin controls</span>
             </div>
             """,
             unsafe_allow_html=True,
@@ -408,11 +526,12 @@ def show_hero() -> None:
                 unsafe_allow_html=True,
             )
 
-    metric_1, metric_2, metric_3, metric_4 = st.columns(4)
-    metric_1.metric("Enrolled People", len(people))
-    metric_2.metric("Face Samples", sample_total)
-    metric_3.metric("Attendance Rows", len(attendance))
-    metric_4.metric("Model", model_status())
+    if is_admin:
+        metric_1, metric_2, metric_3, metric_4 = st.columns(4)
+        metric_1.metric("Enrolled People", len(people))
+        metric_2.metric("Face Samples", sample_total)
+        metric_3.metric("Attendance Rows", len(attendance))
+        metric_4.metric("Model", model_status())
 
 
 def decode_image(image_bytes: bytes) -> np.ndarray:
@@ -512,8 +631,6 @@ def main() -> None:
     ensure_attendance_file()
     apply_theme()
 
-    show_hero()
-
     with st.sidebar:
         st.header("Recognition")
         confidence_limit = st.slider(
@@ -523,10 +640,20 @@ def main() -> None:
             value=int(DEFAULT_CONFIDENCE_LIMIT),
             help="Lower values are stricter.",
         )
+        is_admin = show_admin_login()
 
-    enroll_tab, train_tab, attendance_tab, records_tab = st.tabs(
-        ["Enroll", "Train", "Take Attendance", "Records"]
-    )
+    show_hero(is_admin)
+
+    tab_names = ["Enroll", "Take Attendance"]
+    if is_admin:
+        tab_names.extend(["Train", "Records"])
+
+    tabs = st.tabs(tab_names)
+    enroll_tab = tabs[0]
+    attendance_tab = tabs[1]
+    if is_admin:
+        train_tab = tabs[2]
+        records_tab = tabs[3]
 
     with enroll_tab:
         st.subheader("Enroll Person")
@@ -586,47 +713,6 @@ def main() -> None:
                     for message in messages:
                         st.caption(message)
 
-    with train_tab:
-        st.subheader("Train Model")
-        training_people = enrolled_people()
-        if training_people.empty:
-            st.info("No enrolled people are available for training yet.")
-        else:
-            st.dataframe(training_people, use_container_width=True, hide_index=True)
-
-        if st.button("Train Face Model", type="primary"):
-            try:
-                train()
-                st.success("Model trained successfully.")
-            except Exception as error:
-                st.error(str(error))
-
-        st.divider()
-        st.subheader("Delete Training Data")
-
-        delete_model_confirmed = st.checkbox(
-            "Confirm delete trained model",
-            key="delete_model_confirmed",
-        )
-        if st.button("Delete Trained Model", type="secondary"):
-            if not delete_model_confirmed:
-                st.error("Confirm before deleting the trained model.")
-            else:
-                delete_trained_model()
-                st.success("Trained model deleted.")
-
-        delete_samples_confirmed = st.checkbox(
-            "Confirm delete enrolled face samples",
-            key="delete_samples_confirmed",
-        )
-        if st.button("Delete Enrolled Face Samples", type="secondary"):
-            if not delete_samples_confirmed:
-                st.error("Confirm before deleting enrolled face samples.")
-            else:
-                delete_training_samples()
-                delete_trained_model()
-                st.success("Enrolled face samples and trained model deleted.")
-
     with attendance_tab:
         st.subheader("Mark Attendance")
         if st.button("Open Attendance Camera"):
@@ -660,23 +746,92 @@ def main() -> None:
             except Exception as error:
                 st.error(str(error))
 
-        st.divider()
-        if st.button("Add Absent For Recorded Dates", type="secondary"):
-            try:
-                absent_count, absent_dates = add_absent_candidates()
-                if absent_count:
-                    st.success(
-                        f"Added {absent_count} absent record(s) for "
-                        + ", ".join(absent_dates)
-                        + "."
-                    )
-                else:
-                    st.info("No absent candidates to add for recorded attendance dates.")
-            except Exception as error:
-                st.error(str(error))
+    if is_admin:
+        with train_tab:
+            st.subheader("Train Model")
+            training_people = enrolled_people()
+            if training_people.empty:
+                st.info("No enrolled people are available for training yet.")
+            else:
+                training_editor = training_people.copy()
+                training_editor.insert(0, "delete", False)
+                edited_training = st.data_editor(
+                    training_editor,
+                    column_config={
+                        "delete": st.column_config.CheckboxColumn("Delete"),
+                        "person_id": st.column_config.NumberColumn("ID"),
+                    },
+                    disabled=["person_id", "name", "samples", "status"],
+                    hide_index=True,
+                    use_container_width=True,
+                    key="training_row_editor",
+                )
 
-    with records_tab:
-        show_attendance_table()
+                selected_people = edited_training.loc[
+                    edited_training["delete"], "person_id"
+                ].tolist()
+                if st.button("Delete Selected Training Data", type="secondary"):
+                    if not selected_people:
+                        st.error("Select one or more enrolled people to delete.")
+                    else:
+                        deleted_count = delete_training_people(
+                            [int(person_id) for person_id in selected_people]
+                        )
+                        st.success(
+                            f"Deleted training data for {deleted_count} enrolled people. "
+                            "Train the model again before taking attendance."
+                        )
+                        st.rerun()
+
+            if st.button("Train Face Model", type="primary"):
+                try:
+                    train()
+                    st.success("Model trained successfully.")
+                except Exception as error:
+                    st.error(str(error))
+
+            st.divider()
+            st.subheader("Delete Training Data")
+
+            delete_model_confirmed = st.checkbox(
+                "Confirm delete trained model",
+                key="delete_model_confirmed",
+            )
+            if st.button("Delete Trained Model", type="secondary"):
+                if not delete_model_confirmed:
+                    st.error("Confirm before deleting the trained model.")
+                else:
+                    delete_trained_model()
+                    st.success("Trained model deleted.")
+
+            delete_samples_confirmed = st.checkbox(
+                "Confirm delete enrolled face samples",
+                key="delete_samples_confirmed",
+            )
+            if st.button("Delete Enrolled Face Samples", type="secondary"):
+                if not delete_samples_confirmed:
+                    st.error("Confirm before deleting enrolled face samples.")
+                else:
+                    delete_training_samples()
+                    delete_trained_model()
+                    st.success("Enrolled face samples and trained model deleted.")
+
+        with records_tab:
+            show_attendance_table()
+            st.divider()
+            if st.button("Add Absent For Recorded Dates", type="secondary"):
+                try:
+                    absent_count, absent_dates = add_absent_candidates()
+                    if absent_count:
+                        st.success(
+                            f"Added {absent_count} absent record(s) for "
+                            + ", ".join(absent_dates)
+                            + "."
+                        )
+                    else:
+                        st.info("No absent candidates to add for recorded attendance dates.")
+                except Exception as error:
+                    st.error(str(error))
 
 
 if __name__ == "__main__":

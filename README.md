@@ -48,6 +48,15 @@ streamlit_app.py
 
 The web app uses `st.camera_input`, so the user's browser captures snapshots and sends them to the cloud app. A cloud server cannot access your local webcam through `cv2.VideoCapture`.
 
+Add these secrets in Streamlit Community Cloud before using admin features:
+
+```toml
+ADMIN_USERNAME = "admin"
+ADMIN_PASSWORD = "change-this-password"
+```
+
+Without these secrets, public users can still use `Enroll` and `Take Attendance`, but `Train` and `Records` stay hidden.
+
 `data/model/` is allowed by `.gitignore`, so you can deploy a pre-trained model if needed. `data/faces/` and `attendance/` are ignored because they can contain private or runtime-generated data. Files created on Streamlit Community Cloud are temporary and can disappear after the app restarts.
 
 ## 1. Enroll a person
