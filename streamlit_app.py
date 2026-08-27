@@ -43,6 +43,12 @@ def read_attendance() -> pd.DataFrame:
 def show_attendance_table() -> None:
     attendance = read_attendance()
     st.subheader("Attendance")
+    if st.button("Delete CSV Data", type="secondary"):
+        ensure_attendance_file()
+        ATTENDANCE_PATH.write_text("date,time,person_id,name,status\n", encoding="utf-8")
+        st.success("Attendance CSV data deleted.")
+        attendance = read_attendance()
+
     if attendance.empty:
         st.info("No attendance marked yet.")
         return
@@ -178,13 +184,6 @@ def main() -> None:
             value=DEFAULT_SAMPLE_COUNT,
             step=5,
         )
-        camera_image = st.camera_input("Capture a face sample")
-        uploaded_samples = st.file_uploader(
-            "Or upload face sample images",
-            type=("jpg", "jpeg", "png"),
-            accept_multiple_files=True,
-        )
-
         if name.strip():
             try:
                 person_dir = get_enrollment_dir(name, create=False)
@@ -193,6 +192,23 @@ def main() -> None:
                 st.caption(f"{saved_count} of {target_sample_count} target samples saved.")
             except Exception as error:
                 st.error(str(error))
+
+        if st.button("Open Enrollment Camera"):
+            st.session_state.show_enrollment_camera = True
+
+        camera_image = None
+        if st.session_state.get("show_enrollment_camera", False):
+            camera_image = st.camera_input(
+                "Capture a face sample",
+                key="enrollment_camera_input",
+            )
+
+        uploaded_samples = st.file_uploader(
+            "Or upload face sample images",
+            type=("jpg", "jpeg", "png"),
+            accept_multiple_files=True,
+            key="enrollment_file_uploader",
+        )
 
         if st.button("Save Samples", type="primary"):
             if not name.strip():
@@ -235,10 +251,20 @@ def main() -> None:
 
     with attendance_tab:
         st.subheader("Mark Attendance")
-        attendance_image = st.camera_input("Capture attendance image")
+        if st.button("Open Attendance Camera"):
+            st.session_state.show_attendance_camera = True
+
+        attendance_image = None
+        if st.session_state.get("show_attendance_camera", False):
+            attendance_image = st.camera_input(
+                "Capture attendance image",
+                key="attendance_camera_input",
+            )
+
         uploaded_attendance_image = st.file_uploader(
             "Or upload an attendance image",
             type=("jpg", "jpeg", "png"),
+            key="attendance_file_uploader",
         )
 
         if st.button("Mark From Image", type="primary"):
