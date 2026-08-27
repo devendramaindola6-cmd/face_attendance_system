@@ -20,6 +20,7 @@ ATTENDANCE_DIR = BASE_DIR / "attendance"
 MODEL_PATH = MODEL_DIR / "lbph_face_model.yml"
 LABELS_PATH = MODEL_DIR / "labels.json"
 ATTENDANCE_PATH = ATTENDANCE_DIR / "attendance.csv"
+ATTENDANCE_COLUMNS = ["date", "time", "person_id", "name", "status", "duration"]
 
 FACE_SIZE = (200, 200)
 DEFAULT_CAMERA_INDEX = 0
@@ -251,18 +252,37 @@ def ensure_attendance_file() -> None:
     if not ATTENDANCE_PATH.exists():
         with ATTENDANCE_PATH.open("w", newline="", encoding="utf-8") as file:
             writer = csv.writer(file)
-            writer.writerow(["date", "time", "person_id", "name", "status"])
+            writer.writerow(ATTENDANCE_COLUMNS)
+        return
+
+    with ATTENDANCE_PATH.open("r", newline="", encoding="utf-8") as file:
+        reader = csv.DictReader(file)
+        rows = list(reader)
+        fieldnames = reader.fieldnames or []
+
+    if fieldnames != ATTENDANCE_COLUMNS:
+        with ATTENDANCE_PATH.open("w", newline="", encoding="utf-8") as file:
+            writer = csv.DictWriter(file, fieldnames=ATTENDANCE_COLUMNS)
+            writer.writeheader()
+            for row in rows:
+                writer.writerow({column: row.get(column, "") for column in ATTENDANCE_COLUMNS})
 
 
-def attendance_already_marked_today(person_id: int) -> bool:
+def attendance_status_marked_today(person_id: int, status: str) -> bool:
     ensure_attendance_file()
     today = current_time_ist().date().isoformat()
     with ATTENDANCE_PATH.open("r", newline="", encoding="utf-8") as file:
         reader = csv.DictReader(file)
         return any(
-            row["date"] == today and row["person_id"] == str(person_id)
+            row["date"] == today
+            and row["person_id"] == str(person_id)
+            and row["status"] == status
             for row in reader
         )
+
+
+def attendance_already_marked_today(person_id: int) -> bool:
+    return attendance_status_marked_today(person_id, "Present")
 
 
 def mark_attendance(person_id: int, name: str) -> bool:
@@ -279,9 +299,65 @@ def mark_attendance(person_id: int, name: str) -> bool:
                 person_id,
                 name,
                 "Present",
+                "",
             ]
         )
     return True
+
+
+def format_duration(seconds: float) -> str:
+    total_seconds = max(0, int(seconds))
+    hours, remainder = divmod(total_seconds, 3600)
+    minutes, seconds = divmod(remainder, 60)
+    return f"{hours:02d}:{minutes:02d}:{seconds:02d}"
+
+
+def present_time_for_today(person_id: int) -> datetime | None:
+    ensure_attendance_file()
+    today = current_time_ist().date().isoformat()
+    with ATTENDANCE_PATH.open("r", newline="", encoding="utf-8") as file:
+        reader = csv.DictReader(file)
+        for row in reader:
+            if (
+                row.get("date") == today
+                and row.get("person_id") == str(person_id)
+                and row.get("status") == "Present"
+            ):
+                try:
+                    return datetime.strptime(
+                        f"{row['date']} {row['time']}",
+                        "%Y-%m-%d %H:%M:%S",
+                    ).replace(tzinfo=IST)
+                except ValueError:
+                    return None
+
+    return None
+
+
+def mark_leaving(person_id: int, name: str) -> tuple[bool, str]:
+    if attendance_status_marked_today(person_id, "Checked Out"):
+        return False, "Already checked out today"
+
+    present_time = present_time_for_today(person_id)
+    if present_time is None:
+        return False, "No present record found for today"
+
+    now = current_time_ist()
+    duration = format_duration((now - present_time).total_seconds())
+    with ATTENDANCE_PATH.open("a", newline="", encoding="utf-8") as file:
+        writer = csv.writer(file)
+        writer.writerow(
+            [
+                now.date().isoformat(),
+                now.strftime("%H:%M:%S"),
+                person_id,
+                name,
+                "Checked Out",
+                duration,
+            ]
+        )
+
+    return True, duration
 
 
 def recognize(

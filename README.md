@@ -1,6 +1,6 @@
 # Employee Attendance System
 
-This project enrolls employees, trains a face recognizer, and marks attendance from webcam snapshots or uploaded images. Attendance dates and times are saved in Indian Standard Time (IST).
+This project enrolls employees, trains a face recognizer, marks attendance from webcam snapshots or uploaded images, and records employee checkout duration. Attendance dates and times are saved in Indian Standard Time (IST).
 
 ## Setup
 
@@ -31,7 +31,7 @@ Use the tabs in order:
 
 1. `Enroll` - enter a name and save webcam snapshots or uploaded face images.
 2. `Train` - train the face model.
-3. `Take Attendance` - capture or upload an attendance image and mark recognized faces.
+3. `Take Attendance` - capture an attendance image, mark recognized employees present, or mark leaving.
 4. `Records` - view or download the attendance CSV.
 
 ## Deploy On Streamlit Community Cloud
@@ -92,6 +92,8 @@ attendance/attendance.csv
 ```
 
 Each employee is marked only once per day.
+
+When `Mark Leaving` is used in the Streamlit app, the CSV gets a `Checked Out` row with the duration since that employee's `Present` record for the same IST date.
 
 Attendance timestamps use Indian Standard Time (IST), even when the app runs on Streamlit Community Cloud.
 

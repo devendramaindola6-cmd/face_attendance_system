@@ -30,6 +30,7 @@ from attendance_system import (
     load_face_detector,
     load_model,
     mark_attendance,
+    mark_leaving,
     MODEL_PATH,
     next_person_id,
     normalize_name,
@@ -38,7 +39,7 @@ from attendance_system import (
 
 ASSETS_DIR = Path(__file__).resolve().parent / "assets"
 HERO_IMAGE_PATH = ASSETS_DIR / "aisha-scanner-facerec.png"
-ATTENDANCE_COLUMNS = ["date", "time", "person_id", "name", "status"]
+ATTENDANCE_COLUMNS = ["date", "time", "person_id", "name", "status", "duration"]
 ADMIN_USERNAME_KEY = "ADMIN_USERNAME"
 ADMIN_PASSWORD_KEY = "ADMIN_PASSWORD"
 
@@ -575,6 +576,7 @@ def add_absent_candidates() -> tuple[int, list[str]]:
                         person_id,
                         str(row["name"]),
                         "Absent",
+                        "",
                     ]
                 )
                 absent_count += 1
@@ -736,13 +738,15 @@ def save_face_sample(name: str, image_bytes: bytes) -> tuple[bool, str]:
 def recognize_attendance_image(
     image_bytes: bytes,
     confidence_limit: float,
-) -> tuple[np.ndarray, list[str], list[str], int]:
+    action: str,
+) -> tuple[np.ndarray, list[str], list[str], int, list[str]]:
     detector = load_face_detector()
     recognizer, labels = load_model()
     frame = decode_image(image_bytes)
     gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
     marked_names: list[str] = []
     recognized_names: list[str] = []
+    messages: list[str] = []
 
     faces = detector.detectMultiScale(
         gray,
@@ -759,17 +763,24 @@ def recognize_attendance_image(
         if confidence <= confidence_limit and person_id in labels:
             name = labels[person_id]
             recognized_names.append(name)
-            was_marked = mark_attendance(person_id, name)
+
+            if action == "leaving":
+                was_marked, detail = mark_leaving(person_id, name)
+                status = f"Checked out - {detail}" if was_marked else detail
+            else:
+                was_marked = mark_attendance(person_id, name)
+                status = "Marked" if was_marked else "Present today"
+
             if was_marked:
                 marked_names.append(name)
+            messages.append(f"{name}: {status}")
 
-            status = "Marked" if was_marked else "Present today"
             draw_box(frame, face_tuple, f"{name} - {status}", (0, 180, 0))
         else:
             draw_box(frame, face_tuple, "Unknown", (0, 0, 255))
 
     rgb_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-    return rgb_frame, marked_names, recognized_names, len(faces)
+    return rgb_frame, marked_names, recognized_names, len(faces), messages
 
 
 def main() -> None:
@@ -868,25 +879,37 @@ def main() -> None:
                 key="attendance_camera_input",
             )
 
-        if st.button("Mark Attendance", type="primary"):
+        attendance_button, leaving_button = st.columns(2)
+        mark_attendance_clicked = attendance_button.button("Mark Attendance", type="primary")
+        mark_leaving_clicked = leaving_button.button("Mark Leaving", type="secondary")
+
+        if mark_attendance_clicked or mark_leaving_clicked:
             if attendance_image is None:
                 st.error("Open the attendance camera and capture an image first.")
                 return
 
+            action = "leaving" if mark_leaving_clicked else "attendance"
             try:
-                annotated_frame, marked_names, recognized_names, face_count = recognize_attendance_image(
+                (
+                    annotated_frame,
+                    marked_names,
+                    recognized_names,
+                    face_count,
+                    recognition_messages,
+                ) = recognize_attendance_image(
                     attendance_image.getvalue(),
                     float(st.session_state.recognition_confidence),
+                    action,
                 )
                 st.image(annotated_frame, channels="RGB", use_container_width=True)
                 if marked_names:
-                    st.success("Marked: " + ", ".join(sorted(set(marked_names))))
-                    speak_attendance(marked_names)
+                    if action == "leaving":
+                        st.success("Leaving marked: " + ", ".join(sorted(set(marked_names))))
+                    else:
+                        st.success("Marked: " + ", ".join(sorted(set(marked_names))))
+                        speak_attendance(marked_names)
                 elif recognized_names:
-                    st.info(
-                        "Already marked present today: "
-                        + ", ".join(sorted(set(recognized_names)))
-                    )
+                    st.info("; ".join(recognition_messages))
                 elif face_count:
                     st.warning("Face detected, but it did not match a trained employee.")
                 else:
