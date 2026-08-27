@@ -313,6 +313,11 @@ def speak_attendance(names: list[str]) -> None:
 
     components.html(
         f"""
+        <div>
+            <button id="speak-attendance-button">
+                Play Voice Announcement
+            </button>
+        </div>
         <script>
             const message = {json.dumps(message)};
             const speak = () => {{
@@ -328,11 +333,32 @@ def speak_attendance(names: list[str]) -> None:
                 window.speechSynthesis.speak(utterance);
             }};
 
-            speak();
+            const button = document.getElementById("speak-attendance-button");
+            button.addEventListener("click", speak);
+            setTimeout(speak, 250);
         </script>
+        <style>
+            body {{
+                margin: 0;
+                font-family: "Source Sans Pro", sans-serif;
+            }}
+
+            #speak-attendance-button {{
+                background: linear-gradient(135deg, #0f766e, #16a34a);
+                border: 0;
+                border-radius: 8px;
+                box-shadow: 0 10px 22px rgba(15, 118, 110, 0.24);
+                color: #ffffff;
+                cursor: pointer;
+                font-size: 0.95rem;
+                font-weight: 800;
+                min-height: 2.6rem;
+                padding: 0 1rem;
+                width: 100%;
+            }}
+        </style>
         """,
-        height=0,
-        width=0,
+        height=48,
     )
 
 
