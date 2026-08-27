@@ -85,15 +85,27 @@ def next_person_id() -> int:
 def detect_largest_face(
     detector: cv2.CascadeClassifier, gray_frame: np.ndarray
 ) -> tuple[int, int, int, int] | None:
-    faces = detector.detectMultiScale(
+    prepared_frames = [
         gray_frame,
-        scaleFactor=1.2,
-        minNeighbors=5,
-        minSize=(80, 80),
-    )
-    if len(faces) == 0:
+        cv2.equalizeHist(gray_frame),
+    ]
+    detection_settings = [
+        {"scaleFactor": 1.1, "minNeighbors": 5, "minSize": (60, 60)},
+        {"scaleFactor": 1.08, "minNeighbors": 4, "minSize": (45, 45)},
+        {"scaleFactor": 1.05, "minNeighbors": 3, "minSize": (35, 35)},
+    ]
+
+    detected_faces = []
+    for prepared_frame in prepared_frames:
+        for settings in detection_settings:
+            faces = detector.detectMultiScale(prepared_frame, **settings)
+            if len(faces):
+                detected_faces.extend(faces)
+
+    if not detected_faces:
         return None
-    return max(faces, key=lambda face: face[2] * face[3])
+
+    return tuple(int(value) for value in max(detected_faces, key=lambda face: face[2] * face[3]))
 
 
 def crop_face(gray_frame: np.ndarray, face: tuple[int, int, int, int]) -> np.ndarray:
