@@ -326,10 +326,6 @@ def check_admin_credentials(username: str, password: str) -> bool:
     )
 
 
-def sync_confidence_from_sidebar() -> None:
-    st.session_state.train_recognition_confidence = st.session_state.recognition_confidence
-
-
 def sync_confidence_from_train() -> None:
     st.session_state.recognition_confidence = st.session_state.train_recognition_confidence
 
@@ -722,15 +718,6 @@ def main() -> None:
     )
 
     with st.sidebar:
-        st.header("Recognition")
-        confidence_limit = st.slider(
-            "Recognition confidence",
-            min_value=40,
-            max_value=100,
-            help="Lower values are stricter.",
-            key="recognition_confidence",
-            on_change=sync_confidence_from_sidebar,
-        )
         is_admin = show_admin_login()
 
     show_hero(is_admin)
@@ -824,7 +811,7 @@ def main() -> None:
             try:
                 annotated_frame, marked_names = recognize_attendance_image(
                     attendance_image.getvalue(),
-                    float(confidence_limit),
+                    float(st.session_state.recognition_confidence),
                 )
                 st.image(annotated_frame, channels="RGB", use_container_width=True)
                 if marked_names:
@@ -840,7 +827,7 @@ def main() -> None:
     if is_admin:
         with train_tab:
             st.subheader("Train Model")
-            confidence_limit = st.slider(
+            st.slider(
                 "Recognition confidence",
                 min_value=40,
                 max_value=100,
