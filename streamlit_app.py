@@ -332,7 +332,6 @@ def apply_pending_resets() -> bool:
         did_reset = True
 
     if st.session_state.get("leaving_reset_at", float("inf")) <= now:
-        st.session_state.show_leaving_camera = False
         st.session_state.leaving_camera_key_version += 1
         st.session_state.pop("leaving_reset_at", None)
         did_reset = True
@@ -994,6 +993,11 @@ def main() -> None:
         st.subheader("Mark Leaving")
         if st.button("Open Leaving Camera"):
             st.session_state.show_leaving_camera = True
+
+        if st.session_state.get("show_leaving_camera", False):
+            if st.button("Refresh Leaving Image", type="secondary"):
+                st.session_state.leaving_camera_key_version += 1
+                st.rerun()
 
         leaving_image = None
         if st.session_state.get("show_leaving_camera", False):
