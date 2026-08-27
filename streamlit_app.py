@@ -710,12 +710,13 @@ def save_face_sample(name: str, image_bytes: bytes) -> tuple[bool, str]:
 def recognize_attendance_image(
     image_bytes: bytes,
     confidence_limit: float,
-) -> tuple[np.ndarray, list[str]]:
+) -> tuple[np.ndarray, list[str], list[str], int]:
     detector = load_face_detector()
     recognizer, labels = load_model()
     frame = decode_image(image_bytes)
     gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
     marked_names: list[str] = []
+    recognized_names: list[str] = []
 
     faces = detector.detectMultiScale(
         gray,
@@ -731,6 +732,7 @@ def recognize_attendance_image(
 
         if confidence <= confidence_limit and person_id in labels:
             name = labels[person_id]
+            recognized_names.append(name)
             was_marked = mark_attendance(person_id, name)
             if was_marked:
                 marked_names.append(name)
@@ -741,7 +743,7 @@ def recognize_attendance_image(
             draw_box(frame, face_tuple, "Unknown", (0, 0, 255))
 
     rgb_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-    return rgb_frame, marked_names
+    return rgb_frame, marked_names, recognized_names, len(faces)
 
 
 def main() -> None:
@@ -846,7 +848,7 @@ def main() -> None:
                 return
 
             try:
-                annotated_frame, marked_names = recognize_attendance_image(
+                annotated_frame, marked_names, recognized_names, face_count = recognize_attendance_image(
                     attendance_image.getvalue(),
                     float(st.session_state.recognition_confidence),
                 )
@@ -854,10 +856,15 @@ def main() -> None:
                 if marked_names:
                     st.success("Marked: " + ", ".join(sorted(set(marked_names))))
                     speak_attendance(marked_names)
-                else:
+                elif recognized_names:
                     st.info(
-                        "No new attendance was marked. Faces may be unknown or already present today."
+                        "Already marked present today: "
+                        + ", ".join(sorted(set(recognized_names)))
                     )
+                elif face_count:
+                    st.warning("Face detected, but it did not match a trained employee.")
+                else:
+                    st.warning("No face detected. Try better lighting and face the camera.")
                 st.caption(f"Processed at {current_time_ist().strftime('%H:%M:%S')} IST.")
             except Exception as error:
                 st.error(str(error))
