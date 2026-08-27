@@ -42,7 +42,7 @@ ADMIN_PASSWORD_KEY = "ADMIN_PASSWORD"
 
 
 st.set_page_config(
-    page_title="Face Attendance",
+    page_title="Employee Attendance System",
     page_icon=":camera:",
     layout="wide",
 )
@@ -575,10 +575,10 @@ def show_hero(is_admin: bool) -> None:
     with left:
         st.markdown(
             """
-            <div class="hero-eyebrow">Smart Classroom Attendance</div>
-            <h1 class="hero-title">Face Attendance System</h1>
+            <div class="hero-eyebrow">Workplace Attendance</div>
+            <h1 class="hero-title">Employee Attendance System</h1>
             <p class="hero-copy">
-                Enroll students, train the recognizer, and mark attendance from secure
+                Enroll employees, train the recognizer, and mark attendance from secure
                 browser camera snapshots. Built for Streamlit Cloud with IST timestamps.
             </p>
             <div class="hero-pill-row">
@@ -609,7 +609,7 @@ def show_hero(is_admin: bool) -> None:
 
     if is_admin:
         metric_1, metric_2, metric_3, metric_4 = st.columns(4)
-        metric_1.metric("Enrolled People", len(people))
+        metric_1.metric("Enrolled Employees", len(people))
         metric_2.metric("Face Samples", sample_total)
         metric_3.metric("Attendance Rows", len(attendance))
         metric_4.metric("Model", model_status())
@@ -734,7 +734,7 @@ def main() -> None:
         records_tab = tabs[3]
 
     with enroll_tab:
-        st.subheader("Enroll Person")
+        st.subheader("Enroll Employee")
         name = st.text_input("Name")
         if name.strip():
             try:
@@ -837,7 +837,7 @@ def main() -> None:
             )
             training_people = enrolled_people()
             if training_people.empty:
-                st.info("No enrolled people are available for training yet.")
+                st.info("No enrolled employees are available for training yet.")
             else:
                 training_editor = training_people.copy()
                 training_editor.insert(0, "delete", False)
@@ -858,13 +858,13 @@ def main() -> None:
                 ].tolist()
                 if st.button("Delete Selected Training Data", type="secondary"):
                     if not selected_people:
-                        st.error("Select one or more enrolled people to delete.")
+                        st.error("Select one or more enrolled employees to delete.")
                     else:
                         deleted_count = delete_training_people(
                             [int(person_id) for person_id in selected_people]
                         )
                         st.success(
-                            f"Deleted training data for {deleted_count} enrolled people. "
+                            f"Deleted training data for {deleted_count} enrolled employees. "
                             "Train the model again before taking attendance."
                         )
                         st.rerun()

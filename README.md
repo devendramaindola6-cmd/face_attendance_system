@@ -1,6 +1,6 @@
-# Face Detection Attendance System
+# Employee Attendance System
 
-This project enrolls faces, trains a face recognizer, and marks attendance from webcam snapshots or uploaded images. Attendance dates and times are saved in Indian Standard Time (IST).
+This project enrolls employees, trains a face recognizer, and marks attendance from webcam snapshots or uploaded images. Attendance dates and times are saved in Indian Standard Time (IST).
 
 ## Setup
 
@@ -59,9 +59,9 @@ Without these secrets, public users can still use `Enroll` and `Take Attendance`
 
 `data/model/` is allowed by `.gitignore`, so you can deploy a pre-trained model if needed. `data/faces/` and `attendance/` are ignored because they can contain private or runtime-generated data. Files created on Streamlit Community Cloud are temporary and can disappear after the app restarts.
 
-## 1. Enroll a person
+## 1. Enroll an employee
 
-Run this once for each student/employee:
+Run this once for each employee:
 
 ```powershell
 python attendance_system.py enroll --name "Alice"
@@ -71,7 +71,7 @@ Look at the camera and slowly turn your head. The script saves face samples into
 
 ## 2. Train the model
 
-After enrolling all people:
+After enrolling all employees:
 
 ```powershell
 python attendance_system.py train
@@ -91,7 +91,7 @@ When a known face is detected, attendance is written automatically to:
 attendance/attendance.csv
 ```
 
-Each person is marked only once per day.
+Each employee is marked only once per day.
 
 Attendance timestamps use Indian Standard Time (IST), even when the app runs on Streamlit Community Cloud.
 
